@@ -1,4 +1,4 @@
-module disgo
+module github.com/cyfckl2012/disgo
 
 go 1.17
 
