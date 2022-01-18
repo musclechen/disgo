@@ -255,11 +255,11 @@ func (dl DistributedLock) subscribe(ctx context.Context, lockKey, field string, 
 	pub := dl.redisClient.Subscribe(ctx, dl.config.lockPublishName)
 	f := promise.Start(func() (v interface{}, err error) {
 		for range pub.Channel() {
-			cmd := dl.redisClient.ZRevRange(ctx, lockKey+"-zset", -1, -1)
+			cmd := dl.redisClient.ZRevRange(ctx, dl.config.lockZSetName, -1, -1)
 			if cmd != nil && cmd.Val()[0] == field {
 				ttl, _ := dl.tryAcquire(ctx, lockKey, field, releaseTime, isNeedScheduled)
 				if ttl == 0 {
-					cmd := dl.redisClient.ZRem(ctx, lockKey+"-zset", field)
+					cmd := dl.redisClient.ZRem(ctx, dl.config.lockZSetName, field)
 					if cmd.Err() != nil {
 						log.Fatal(cmd.Err())
 					}
