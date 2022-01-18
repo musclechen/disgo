@@ -38,7 +38,7 @@ DisGo uses Redis's publish and subscribe, and will receive the message as soon a
     lock := disgo.GetLock(redisClient, "test")
 ```
 
-#### Ordinary lock (no automatic renewal required)
+#### Ordinary lock (no spin lock and automatic renewal required)
 ```go
     success, err := lock.Lock(ctx, 5*time.Second, 10*time.Second)
 ```
