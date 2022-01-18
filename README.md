@@ -1,4 +1,4 @@
-English | [中文](./Readme-CN.md)
+English | [中文](./README-CN.md)
 
 # DisGo Introduce
 DisGo is a distributed lock based on Redis, developed in Golang language. The name comes from `Distributed`, `Disco` and `Golang`, I wish you all to write code as easy as dancing disco.
