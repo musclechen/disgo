@@ -50,7 +50,7 @@ DisGo使用了Redis的发布订阅，在锁释放的第一时间会收到消息�
 
 #### 自旋加锁（自动续期）
 ```go
-    success, err := lock.TryLockWithSchedule(ctx, 5*time.Second, 10*time.Second)
+    success, err := lock.TryLockWithSchedule(ctx, 5*time.Second)
 ```
 
 #### 解锁（通用）

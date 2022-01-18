@@ -57,8 +57,6 @@ type ConfigOption struct {
 	lockPublishName string
 	lockZSetName    string
 	lockName        string
-	expiry          time.Duration
-	timeout         time.Duration
 }
 
 type DistLock struct {
@@ -98,7 +96,7 @@ func GetLock(redisClient RedisClient, lockName string) (*DistributedLock, error)
 // Notice! Because there is no retry mechanism, there is a high probability that the lock will fail under high concurrency.
 // This is a reentrant lock.
 func (dl *DistributedLock) Lock(ctx context.Context, expiryTime time.Duration) (bool, error) {
-	dl.config.expiry = expiryTime
+	dl.distLock.expiry = expiryTime
 
 	ttl, err := dl.tryAcquire(ctx, dl.distLock.lockName, dl.distLock.field, expiryTime, false)
 	if err != nil {
@@ -116,8 +114,8 @@ func (dl *DistributedLock) Lock(ctx context.Context, expiryTime time.Duration) (
 // If the lock fails, it will enter the queue and wait to be woken up, or it will return false if it times out.
 // This is a reentrant lock.
 func (dl *DistributedLock) TryLock(ctx context.Context, expiryTime, waitTime time.Duration) (bool, error) {
-	dl.config.expiry = expiryTime
-	dl.config.timeout = waitTime
+	dl.distLock.expiry = expiryTime
+	dl.distLock.timeout = waitTime
 
 	ttl, err := dl.tryAcquire(ctx, dl.distLock.lockName, dl.distLock.field, expiryTime, false)
 	if err != nil {
@@ -140,12 +138,10 @@ func (dl *DistributedLock) TryLock(ctx context.Context, expiryTime, waitTime tim
 // but it will open an additional thread to ensure that the lock will not expire in advance,
 // which means that you must release the lock manually, otherwise a deadlock will occur.
 // This is a reentrant lock.
-func (dl *DistributedLock) TryLockWithSchedule(ctx context.Context, key string, waitTime time.Duration) (bool, error) {
-	dl.config.timeout = waitTime
+func (dl *DistributedLock) TryLockWithSchedule(ctx context.Context, waitTime time.Duration) (bool, error) {
+	dl.distLock.timeout = waitTime
 
-	value := uuid.New().String() + "-" + strconv.Itoa(getGoroutineId())
-
-	ttl, err := dl.tryAcquire(ctx, key, value, dl.config.expiry, true)
+	ttl, err := dl.tryAcquire(ctx, dl.distLock.lockName, dl.distLock.field, dl.distLock.expiry, true)
 	if err != nil {
 		return true, err
 	}
@@ -154,17 +150,17 @@ func (dl *DistributedLock) TryLockWithSchedule(ctx context.Context, key string, 
 	}
 
 	// Enter the waiting queue, waiting to be woken up
-	succ := dl.subscribe(ctx, key, value, dl.config.expiry, true)
+	succ := dl.subscribe(ctx, dl.distLock.lockName, dl.distLock.field, dl.distLock.expiry, true)
 	if succ {
 		return true, nil
 	}
 	// CAS
-	return dl.cas(ctx, dl.config.expiry, waitTime, true)
+	return dl.cas(ctx, dl.distLock.expiry, waitTime, true)
 }
 
 // Release is a general release lock method, and all three locks above can be used.
 func (dl DistributedLock) Release(ctx context.Context) (bool, error) {
-	cmd := luaRelease.Run(ctx, dl.redisClient, []string{dl.distLock.lockName, dl.config.lockZSetName}, int(dl.config.expiry/time.Millisecond), dl.distLock.field)
+	cmd := luaRelease.Run(ctx, dl.redisClient, []string{dl.distLock.lockName, dl.config.lockZSetName}, int(dl.distLock.expiry/time.Millisecond), dl.distLock.field)
 	res, err := cmd.Int64()
 	if err != nil {
 		return false, err
@@ -195,7 +191,7 @@ func (dl DistributedLock) tryAcquire(ctx context.Context, key, value string, rel
 		return -500, err
 	}
 
-	// Successfully locked, open WatchDog
+	// Successfully locked, open guard
 	if isNeedScheduled && ttl == 0 {
 		dl.scheduleExpirationRenewal(ctx, key, value, 30*time.Second)
 	}
@@ -214,21 +210,24 @@ func (dl DistributedLock) scheduleExpirationRenewal(ctx context.Context, key, fi
 		for {
 			time.Sleep(releaseTime / 3)
 			if canceller.IsCancelled() {
-				log.Println(field, "'s watchdog is closed, count = ", count)
+				log.Println(field, "'s guard is closed, count = ", count)
 				return
 			}
-			log.Println(field, " open a watchdog")
+			if count == 0 {
+				log.Println(field, " open a guard")
+			}
 			cmd := luaExpire.Run(ctx, dl.redisClient, []string{key}, int(releaseTime/time.Millisecond), field)
 			res, err := cmd.Int64()
 			if err != nil {
-				log.Fatal(field, "'s watchdog has err", err)
+				log.Fatal(field, "'s guard has err: ", err)
 				return
 			}
 			if res == 1 {
 				count += 1
+				log.Println(field, "'s guard renewal successfully, count = ", count)
 				continue
 			} else {
-				log.Println(field, "'s watchdog is closed, count = ", count)
+				log.Println(field, "'s guard is closed, count = ", count)
 				return
 			}
 		}
@@ -246,7 +245,7 @@ func (dl DistributedLock) scheduleExpirationRenewal(ctx context.Context, key, fi
 // it will be woken up when the lock is available, and the thread at the head of the queue will try to lock.
 func (dl DistributedLock) subscribe(ctx context.Context, lockKey, field string, releaseTime time.Duration, isNeedScheduled bool) bool {
 	// Push your own id to the message queue and queue
-	cmd := luaZSet.Run(ctx, dl.redisClient, []string{dl.config.lockZSetName}, time.Now().Add(dl.config.timeout/3*2).UnixMicro(), field, time.Now().UnixMicro())
+	cmd := luaZSet.Run(ctx, dl.redisClient, []string{dl.config.lockZSetName}, time.Now().Add(dl.distLock.timeout/3*2).UnixMicro(), field, time.Now().UnixMicro())
 	if cmd.Err() != nil {
 		log.Fatal(cmd.Err())
 		return false
@@ -272,7 +271,7 @@ func (dl DistributedLock) subscribe(ctx context.Context, lockKey, field string, 
 		}
 		return false, nil
 	})
-	v, err, _ := f.GetOrTimeout(uint((dl.config.timeout / 3 * 2) / time.Millisecond))
+	v, err, _ := f.GetOrTimeout(uint((dl.distLock.timeout / 3 * 2) / time.Millisecond))
 	if err != nil {
 		log.Fatal(err)
 		return false
