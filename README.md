@@ -43,7 +43,7 @@ DisGo uses Redis's publish and subscribe, and will receive the message as soon a
     success, err := lock.Lock(ctx, 5*time.Second, 10*time.Second)
 ```
 
-#### Spin-locked (no auto-renewal required)
+#### Spin lock (no auto-renewal required)
 ```go
     success, err := lock.TryLock(ctx, 5*time.Second, 10*time.Second)
 ```
