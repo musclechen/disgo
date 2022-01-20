@@ -198,7 +198,7 @@ func (dl *DistributedLock) SetLockKeyPrefix(prefix string) {
 // -------------Minimum method---------------
 
 // tryAcquire is the smallest unit of locking, and will use lua script for locking operation
-func (dl DistributedLock) tryAcquire(ctx context.Context, key, value string, releaseTime time.Duration, isNeedScheduled bool) (int64, error) {
+func (dl *DistributedLock) tryAcquire(ctx context.Context, key, value string, releaseTime time.Duration, isNeedScheduled bool) (int64, error) {
 	cmd := luaAcquire.Run(ctx, dl.redisClient, []string{key}, int(releaseTime/time.Millisecond), value)
 	ttl, err := cmd.Int64()
 	if err != nil {
@@ -215,7 +215,7 @@ func (dl DistributedLock) tryAcquire(ctx context.Context, key, value string, rel
 }
 
 // scheduleExpirationRenewal is a guard thread (extend the expiration time)
-func (dl DistributedLock) scheduleExpirationRenewal(ctx context.Context, key, field string, releaseTime time.Duration) {
+func (dl *DistributedLock) scheduleExpirationRenewal(ctx context.Context, key, field string, releaseTime time.Duration) {
 	if _, ok := theFutureOfSchedule.Load(field); ok {
 		return
 	}
@@ -258,7 +258,7 @@ func (dl DistributedLock) scheduleExpirationRenewal(ctx context.Context, key, fi
 
 // subscribe uses the zset of redis as the queue, and the subscription channel enters the blocking state,
 // it will be woken up when the lock is available, and the thread at the head of the queue will try to lock.
-func (dl DistributedLock) subscribe(ctx context.Context, lockKey, field string, releaseTime time.Duration, isNeedScheduled bool) bool {
+func (dl *DistributedLock) subscribe(ctx context.Context, lockKey, field string, releaseTime time.Duration, isNeedScheduled bool) bool {
 	// Push your own id to the message queue and queue
 	cmd := luaZSet.Run(ctx, dl.redisClient, []string{dl.config.lockZSetName}, time.Now().Add(dl.distLock.timeout/3*2).UnixMicro(), field, time.Now().UnixMicro())
 	if cmd.Err() != nil {
@@ -312,7 +312,7 @@ func (dl DistributedLock) subscribe(ctx context.Context, lockKey, field string, 
 // Due to the possibility of CPU time slice switching, the locking failure in subscribe or the subscription time is too long,
 // cas determines the lock snatching time by using the TTL of lock holding,
 // which can make up for the lock snatching failure caused by CPU time slice switching.
-func (dl DistributedLock) cas(ctx context.Context, expiryTime, waitTime time.Duration, isNeedScheduled bool) (bool, error) {
+func (dl *DistributedLock) cas(ctx context.Context, expiryTime, waitTime time.Duration, isNeedScheduled bool) (bool, error) {
 	deadlinectx, cancel := context.WithDeadline(ctx, time.Now().Add(waitTime))
 	defer cancel()
 
