@@ -35,7 +35,7 @@ DisGo使用了Redis的发布订阅，在锁释放的第一时间会收到消息�
         Network: "tcp",
         Addr:    "127.0.0.1:6379",
     })
-    lock := disgo.GetLock(redisClient, "test")
+    lock, err := disgo.GetLock(redisClient, "test")
 ```
 
 #### 普通加锁（不需要自动续期）

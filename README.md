@@ -35,7 +35,7 @@ DisGo uses Redis's publish and subscribe, and will receive the message as soon a
         Network: "tcp",
         Addr:    "127.0.0.1:6379",
     })
-    lock := disgo.GetLock(redisClient, "test")
+    lock, err := disgo.GetLock(redisClient, "test")
 ```
 
 #### Ordinary lock (no spin lock and automatic renewal required)

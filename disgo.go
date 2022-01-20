@@ -56,12 +56,12 @@ type ConfigOption struct {
 	lockKeyPrefix   string
 	lockPublishName string
 	lockZSetName    string
-	lockName        string
 }
 
 type DistLock struct {
-	expiry  time.Duration
-	timeout time.Duration
+	expiry        time.Duration
+	timeout       time.Duration
+	localLockName string
 	// hash-name
 	lockName string
 	// hash-key
@@ -80,10 +80,11 @@ func GetLock(redisClient RedisClient, lockName string) (*DistributedLock, error)
 		lockPublishName: defaultLockKeyPrefix + ":" + lockName + defaultPublishPostfix,
 	}
 	distList := DistLock{
-		expiry:   defaultExpiry,
-		timeout:  defaultTimeout,
-		lockName: defaultLockKeyPrefix + ":" + lockName,
-		field:    uuid.New().String() + "-" + strconv.Itoa(getGoroutineId()),
+		expiry:        defaultExpiry,
+		timeout:       defaultTimeout,
+		localLockName: lockName,
+		lockName:      defaultLockKeyPrefix + ":" + lockName,
+		field:         uuid.New().String() + "-" + strconv.Itoa(getGoroutineId()),
 	}
 	return &DistributedLock{
 		redisClient: redisClient,
@@ -159,7 +160,7 @@ func (dl *DistributedLock) TryLockWithSchedule(ctx context.Context, waitTime tim
 }
 
 // Release is a general release lock method, and all three locks above can be used.
-func (dl DistributedLock) Release(ctx context.Context) (bool, error) {
+func (dl *DistributedLock) Release(ctx context.Context) (bool, error) {
 	cmd := luaRelease.Run(ctx, dl.redisClient, []string{dl.distLock.lockName, dl.config.lockZSetName}, int(dl.distLock.expiry/time.Millisecond), dl.distLock.field)
 	res, err := cmd.Int64()
 	if err != nil {
@@ -178,6 +179,20 @@ func (dl DistributedLock) Release(ctx context.Context) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// SetExpiry sets the expiration time for TryLockWithSchedule, the default is 30 seconds.
+func (dl *DistributedLock) SetExpiry(expiry time.Duration) {
+	dl.distLock.expiry = expiry
+}
+
+// SetLockKeyPrefix set the prefix name of the lock, which is convenient for classifying and managing locks of the same type.
+// It has default values: "GoDistRL"
+func (dl *DistributedLock) SetLockKeyPrefix(prefix string) {
+	dl.config.lockKeyPrefix = prefix
+	dl.distLock.lockName = prefix + ":" + dl.distLock.localLockName
+	dl.config.lockZSetName = prefix + ":" + dl.distLock.localLockName + defaultZSetPostfix
+	dl.config.lockPublishName = prefix + ":" + dl.distLock.localLockName + defaultPublishPostfix
 }
 
 // -------------Minimum method---------------
