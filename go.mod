@@ -1,4 +1,4 @@
-module github.com/cyfckl2012/disgo
+module github.com/musclechen/disgo
 
 go 1.17
 
